@@ -3,7 +3,6 @@ using Ont.SmartContract.Framework.Services.Ont;
 using Ont.SmartContract.Framework.Services.System;
 using System;
 using System.Numerics;
-using Helper = Ont.SmartContract.Framework.Helper;
 
 namespace StockAssign
 {
@@ -61,50 +60,33 @@ namespace StockAssign
 
         public static bool Vote(byte[] from, ulong value)
         {
-            if (value <= 0)
-            {
-                return false;
-            }
-            if (!Runtime.CheckWitness(from))
-            {
-                Runtime.Notify("Checkwitness failed.");
-                return false;
-            }
+            if (value <= 0) return false;
+            if (!Runtime.CheckWitness(from)) return false;
             uint height = Blockchain.GetHeight();
             if (height >= beginBlock)
             {
-                Runtime.Notify("current block greater than beginblock, can't vote.");
+                Runtime.Log("current block height greater than begin block height, can't vote.");
                 return false;
             }
-            
+
             byte[] voteContract = ExecutionEngine.ExecutingScriptHash;
 
             StorageContext context = Storage.CurrentContext;
             ulong totalAmount = (ulong)Storage.Get(context, "totalAmount").AsBigInteger();
-            if (totalAmount < 0)
-            {
-                return false;
-            }
+            if (totalAmount < 0) return false;
+
             string flag = Storage.Get(context, "votepeerflag").AsString();
             if (flag == "true")
             {
-                Runtime.Notify("vote to peer has been finished.");
+                Runtime.Log("vote to peer has been finished.");
                 return false;
             }
             ulong balanceCap = totalCap - totalAmount;
-            if (value > balanceCap)
-            {
-                value = balanceCap;
-            }
+            if (value > balanceCap) value = balanceCap;
 
-            Transfer param = new Transfer { From = from, To = voteContract, Value = value };
-            object[] p = new object[1];
-            p[0] = param;
-            byte[] ret = Native.Invoke(0, ontAddr, "transfer", p);
-            if (ret[0] != 1)
-            {
-                return false;
-            }
+            byte[] ret = Native.Invoke(0, ontAddr, "transfer", new object[1] { new Transfer { From = from, To = voteContract, Value = value } });
+            if (ret[0] != 1) return false;
+
             BigInteger balance = Storage.Get(context, from).AsBigInteger();
             Storage.Put(context, from, balance + value);
             Storage.Put(context, "totalAmount", totalAmount + value);
@@ -115,30 +97,23 @@ namespace StockAssign
         {
             byte[] voteContract = ExecutionEngine.ExecutingScriptHash;
             byte[] ret;
-            //if (!Runtime.CheckWitness(admin))
-            //{
-            //    return false;
-            //}
             uint height = Blockchain.GetHeight();
             if (height < beginBlock)
             {
-                Runtime.Notify("can't unvote before beign block height");
+                Runtime.Log("can't unvote before beign block height");
                 return false;
             }
             StorageContext context = Storage.CurrentContext;
             ulong voteValue = (ulong)Storage.Get(context, from).AsBigInteger();
             if (voteValue < value)
             {
-                Runtime.Notify("withdraw value more than voted value");
+                Runtime.Log("withdraw value more than voted value");
                 return false;
             }
-            
+
             ulong totalAmount = (ulong)Storage.Get(context, "totalAmount").AsBigInteger();
-            if (totalAmount < 0)
-            {
-                return false;
-            }
-                
+            if (totalAmount < 0) return false;
+
             string flag = Storage.Get(context, "unvotepeerflag").AsString();
             Runtime.Notify(flag);
             if (flag == "false")
@@ -148,57 +123,50 @@ namespace StockAssign
                 ret = Native.Invoke(0, govAddr, "unVoteForPeer", peer);
                 if (ret[0] != 1)
                 {
-                    Runtime.Notify("unvote peer failed");
+                    Runtime.Log("unvote peer failed");
                     return false;
                 }
                 Storage.Put(context, "unvotepeerflag", "true");
-                Runtime.Notify("unvote success, need to waiting ending block height.");
+                Runtime.Log("unvote success, need to waiting ending block height.");
                 return true;
             }
 
             if (height < endBlock)
             {
-                Runtime.Notify("need to wait ending block to withdraw.");
+                Runtime.Log("need to wait ending block to withdraw.");
                 return false;
             }
 
             flag = Storage.Get(context, "withdrawflag").AsString();
-            Runtime.Notify(flag);
+            Runtime.Log(flag);
 
             // withdraw ONT from vote peer node
             if (flag == "false")
             {
-                Withdraw w = new Withdraw { Account = voteContract, PeerPubkey = new string[] { pubKey }, Value = new ulong[] { totalAmount } };
-                ret = Native.Invoke(0, govAddr, "withdraw", w);
+                ret = Native.Invoke(0, govAddr, "withdraw", new Withdraw { Account = voteContract, PeerPubkey = new string[] { pubKey }, Value = new ulong[] { totalAmount } });
                 if (ret[0] != 1)
                 {
-                    Runtime.Notify("withdraw ont failed");
+                    Runtime.Log("withdraw ont failed");
                     return false;
                 }
-                Runtime.Notify("withdraw ont success");
+                Runtime.Log("withdraw ont success");
                 Storage.Put(context, "withdrawflag", "true");
             }
-            
+
 
             // reback ONT to voter
             object[] p = new object[1];
             Transfer t = new Transfer { From = voteContract, To = from, Value = value };
             p[0] = t;
-            ret = Native.Invoke(0, ontAddr, "transfer", p);
+            ret = Native.Invoke(0, ontAddr, "transfer", new object[1] { new Transfer { From = voteContract, To = from, Value = value } });
             if (ret[0] != 1)
             {
                 return false;
             }
 
             // reback ONG to voter
-            ulong ongValue = (value * ongRate * factor) / 100 ;
-            t.Value = ongValue;
-            p[0] = t;
-            ret = Native.Invoke(0, ongAddr, "transfer", p);
-            if (ret[0] != 1)
-            {
-                return false;
-            }
+            ret = Native.Invoke(0, ongAddr, "transfer", new object[1] { new Transfer { From = voteContract, To = from, Value = (value * ongRate * factor) / 100 } });
+            if (ret[0] != 1) return false;
 
             Storage.Put(context, from, voteValue - value);
             return true;
@@ -206,46 +174,36 @@ namespace StockAssign
 
         public static bool VoteToPeer(string pubKey)
         {
-            if (!Runtime.CheckWitness(admin))
-            {
-                return false;
-            }
+            if (!Runtime.CheckWitness(admin)) return false;
 
             byte[] voteContract = ExecutionEngine.ExecutingScriptHash;
 
             uint height = Blockchain.GetHeight();
             if (height >= beginBlock)
             {
-                Runtime.Notify("current blockheight greater than beign block height");
+                Runtime.Log("current blockheight greater than beign block height");
                 return false;
             }
 
             StorageContext context = Storage.CurrentContext;
 
             ulong totalOnt = (ulong)Storage.Get(context, "totalAmount").AsBigInteger();
-            if (totalOnt < 0)
-            {
-                return false;
-            }
+            if (totalOnt < 0) return false;
 
-            Approve approve = new Approve { From = voteContract, To = govAddr, Value = (ulong)totalOnt };
-
-            byte[] ret = Native.Invoke(0, ontAddr, "approve", approve);
+            byte[] ret = Native.Invoke(0, ontAddr, "approve", new Approve { From = voteContract, To = govAddr, Value = (ulong)totalOnt });
             if (ret[0] != 1)
             {
-                Runtime.Notify("VoteToPeer approve ont failed.");
+                Runtime.Log("VoteToPeer approve ont failed.");
                 return false;
             }
 
-            Peer peer = new Peer { From = voteContract, Key = new string[] { pubKey }, Value = new ulong[] { (ulong)totalOnt } };
-
-            ret = Native.Invoke(0, govAddr, "voteForPeerTransferFrom", peer);
+            ret = Native.Invoke(0, govAddr, "voteForPeerTransferFrom", new Peer { From = voteContract, Key = new string[] { pubKey }, Value = new ulong[] { (ulong)totalOnt } });
             if (ret[0] != 1)
             {
-                Runtime.Notify("votepeer failed");
+                Runtime.Log("votepeer failed");
                 return false;
             }
-            Runtime.Notify("votepeer success");
+            Runtime.Log("votepeer success");
             Storage.Put(context, "votepeerflag", "true");
             Storage.Put(context, "unvotepeerflag", "false");
             Storage.Put(context, "withdrawflag", "false");
@@ -254,16 +212,13 @@ namespace StockAssign
 
         public static bool QuitNode()
         {
+            if (!Runtime.CheckWitness(admin)) return false;
             byte[] voteContract = ExecutionEngine.ExecutingScriptHash;
-            if (!Runtime.CheckWitness(admin))
-            {
-                return false;
-            }
 
             uint height = Blockchain.GetHeight();
             if (height < quitBlock)
             {
-                Runtime.Notify("current blockheight less than quit block height");
+                Runtime.Log("current blockheight less than quit block height");
                 return false;
             }
 
@@ -277,23 +232,11 @@ namespace StockAssign
 
         private static bool RecycleAsset(byte[] from, byte[] to, ulong ont, ulong ong)
         {
-            byte[] ret;
-            Transfer transfer = new Transfer { From = from, To = to, Value = ont };
-            object[] p = new object[1];
-            p[0] = transfer;
-            
-            ret = Native.Invoke(0, ontAddr, "transfer", p);
-            if (ret[0] != 1)
-            {
-                return false;
-            }
-            transfer.Value = ong;
-            p[0] = transfer;
-            ret = Native.Invoke(0, ongAddr, "transfer", p);
-            if (ret[0] != 1)
-            {
-                return false;
-            }
+            byte[] ret = Native.Invoke(0, ontAddr, "transfer", new object[1] { new Transfer { From = from, To = to, Value = ont } });
+            if (ret[0] != 1) throw new Exception("recycle ont failed.");
+
+            ret = Native.Invoke(0, ongAddr, "transfer", new object[1] { new Transfer { From = from, To = to, Value = ong } });
+            if (ret[0] != 1) throw new Exception("recycle ong failed.");
             return true;
         }
 
