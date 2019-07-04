@@ -4,7 +4,7 @@ using Ont.SmartContract.Framework.Services.System;
 using System;
 using System.Numerics;
 
-namespace StockAssign
+namespace ONTOLOGY_VOTE
 {
     public class Contract1 : SmartContract
     {
@@ -18,7 +18,7 @@ namespace StockAssign
 
         private const ulong factor = 1000000000; // ONG Decimal
         private const ulong totalCap = 1000000; // 100W
-        private const ulong ongRate = 5; // 一轮周期后每一百个ONT分润的ONG数量
+        private const ulong ongRate = 5; // number of ONG returned per 100 ONT in one round
 
         private const ulong beginBlock = 8650;
         private const ulong endBlock = 8750;
